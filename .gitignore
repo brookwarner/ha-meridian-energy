@@ -14,4 +14,6 @@ coverage.xml
 
 # Home Assistant configuration
 config/*
-!config/configuration.yaml
+!config/configuration.yaml.DS_Store
+__pycache__/
+*.pyc
