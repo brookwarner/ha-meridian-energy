@@ -1,7 +1,21 @@
 ![Company logo](https://github.com/home-assistant/brands/blob/87e2d7c60931ee822776d2204244ef3eff4d22cf/custom_integrations/meridian_energy/logo.png?raw=true)
 
 # Meridian Energy integration for Home Assistant
-![image](https://github.com/codyc1515/ha-meridian-energy/assets/50791984/26e62938-ea81-4e7f-86a2-c5adf7da5d1f)
+
+> **Maintained fork.** A continuation of [codyc1515/ha-meridian-energy](https://github.com/codyc1515/ha-meridian-energy),
+> which has been inactive since late 2024. This fork adds historical statistics
+> backfill, day/night/solar handling and assorted fixes, and is the version actively
+> running in production. Contributions welcome.
+
+## What this fork adds
+
+* **Historical statistics import** into the Home Assistant recorder (long-term
+  statistics / Energy dashboard), with persistent import-state across restarts
+* **Day / Night / Solar export** usage sensors
+* Configurable historical-data window and incremental consumption processing
+* Fixes around duplicate usage and data backfill (the areas reported in upstream
+  issues [#6](https://github.com/codyc1515/ha-meridian-energy/issues/6) /
+  [#7](https://github.com/codyc1515/ha-meridian-energy/issues/7))
 
 ## Compatible plans
 
@@ -17,12 +31,12 @@ Once installed, simply set-up from the `Devices and services` area. The first fi
 
 ### HACS (recommended)
 1. [Install HACS](https://hacs.xyz/docs/setup/download), if you did not already
-2. [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=codyc1515&repository=ha-meridian-energy&category=integration)
+2. In HACS, add this repository as a **custom repository**: `https://github.com/brookwarner/ha-meridian-energy` (category: Integration). Or use the button: [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=brookwarner&repository=ha-meridian-energy&category=integration)
 3. Install the Meridian Energy integration
 4. Restart Home Assistant
 
 ### Manually
-Copy all files in the custom_components/meridian-energy folder to your Home Assistant folder *config/custom_components/meridian-energy*.
+Copy the `custom_components/meridian_energy` folder into your Home Assistant `config/custom_components/` directory, then restart Home Assistant.
 
 ## Known issues
 
