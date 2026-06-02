@@ -24,7 +24,16 @@ from homeassistant.components.recorder.statistics import (
 
 from .api import MeridianEnergyApi
 
-from .const import DOMAIN, SENSOR_NAME
+from .const import (
+    DOMAIN, 
+    SENSOR_NAME, 
+    CONF_DAY_RATE, 
+    CONF_NIGHT_RATE, 
+    CONF_SOLAR_RATE,
+    DEFAULT_COST_RATE_DAY,
+    DEFAULT_COST_RATE_NIGHT,
+    DEFAULT_COST_RATE_SOLAR,
+)
 
 NAME = DOMAIN
 ISSUEURL = "https://github.com/codyc1515/ha-meridian-energy/issues"
@@ -44,7 +53,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
     {vol.Required(CONF_EMAIL): cv.string, vol.Required(CONF_PASSWORD): cv.string}
 )
 
-SCAN_INTERVAL = timedelta(hours=3)
+SCAN_INTERVAL = timedelta(hours=3)  # Default to 3 hours
 
 
 async def async_setup_entry(
@@ -56,20 +65,31 @@ async def async_setup_entry(
     """Asynchronously set-up the entry."""
     email = entry.data.get(CONF_EMAIL)
     password = entry.data.get(CONF_PASSWORD)
+    
+    # Get configured rates with fallback to defaults
+    day_rate = entry.data.get(CONF_DAY_RATE, DEFAULT_COST_RATE_DAY)
+    night_rate = entry.data.get(CONF_NIGHT_RATE, DEFAULT_COST_RATE_NIGHT)
+    solar_rate = entry.data.get(CONF_SOLAR_RATE, DEFAULT_COST_RATE_SOLAR)
+    
+    # Check for options updates
+    if entry.options:
+        day_rate = entry.options.get(CONF_DAY_RATE, day_rate)
+        night_rate = entry.options.get(CONF_NIGHT_RATE, night_rate)
+        solar_rate = entry.options.get(CONF_SOLAR_RATE, solar_rate)
 
     api = MeridianEnergyApi(email, password)
 
     _LOGGER.debug("Setting up sensor(s)...")
 
     sensors = []
-    sensors.append(MeridianEnergyUsageSensor(SENSOR_NAME, api))
+    sensors.append(MeridianEnergyUsageSensor(SENSOR_NAME, api, day_rate, night_rate, solar_rate, entry.entry_id))
     async_add_entities(sensors, True)
 
 
 class MeridianEnergyUsageSensor(SensorEntity):
     """Define Meridian Energy Usage sensor."""
 
-    def __init__(self, name, api):
+    def __init__(self, name, api, day_rate, night_rate, solar_rate, entry_id):
         """Intialise Meridian Energy Usage sensor."""
         self._name = name
         self._icon = "mdi:meter-electric"
@@ -77,6 +97,10 @@ class MeridianEnergyUsageSensor(SensorEntity):
         self._unique_id = DOMAIN
         self._state_attributes = {}
         self._api = api
+        self._day_rate = day_rate
+        self._night_rate = night_rate
+        self._solar_rate = solar_rate
+        self._entry_id = entry_id
 
     @property
     def name(self):
@@ -96,7 +120,13 @@ class MeridianEnergyUsageSensor(SensorEntity):
     @property
     def extra_state_attributes(self):
         """Return the state attributes of the sensor."""
-        return self._state_attributes
+        attributes = dict(self._state_attributes)
+        attributes.update({
+            "day_rate": self._day_rate,
+            "night_rate": self._night_rate,
+            "solar_rate": self._solar_rate,
+        })
+        return attributes
 
     @property
     def unique_id(self):
@@ -109,12 +139,18 @@ class MeridianEnergyUsageSensor(SensorEntity):
 
         solarStatistics = []
         solarRunningSum = 0
+        solarCostStatistics = []
+        solarCostRunningSum = 0
 
         dayStatistics = []
         dayRunningSum = 0
+        dayCostStatistics = []
+        dayCostRunningSum = 0
 
         nightStatistics = []
         nightRunningSum = 0
+        nightCostStatistics = []
+        nightCostRunningSum = 0
 
         # Login to the website
         self._api.token()
@@ -135,7 +171,8 @@ class MeridianEnergyUsageSensor(SensorEntity):
                 _LOGGER.debug("HDR line arrived")
                 continue
             elif row[0] == "DET":
-                _LOGGER.debug("DET line arrived")
+                # Continue processing DET lines without logging each one
+                pass
 
             # Row definitions from EIEP document 13A (https://www.ea.govt.nz/documents/182/EIEP_13A_Electricity_conveyed_information_for_consumers.pdf)
             energy_flow_direction = row[6]
@@ -168,15 +205,20 @@ class MeridianEnergyUsageSensor(SensorEntity):
             rounded_date = start_date.replace(minute=0, second=0, microsecond=0)
 
             # Only calculate the energy after all checks are complete
-            unit_quantity_active_energy_volume = row[12]
+            unit_quantity_active_energy_volume = float(row[12])
 
             # Process solar export channels
             if energy_flow_direction == "I":
-                solarRunningSum = solarRunningSum + float(
-                    unit_quantity_active_energy_volume
-                )
+                solarRunningSum = solarRunningSum + unit_quantity_active_energy_volume
                 solarStatistics.append(
                     StatisticData(start=rounded_date, sum=solarRunningSum)
+                )
+                
+                # Calculate cost for solar export using configured rate
+                solar_cost = unit_quantity_active_energy_volume * self._solar_rate
+                solarCostRunningSum = solarCostRunningSum + solar_cost
+                solarCostStatistics.append(
+                    StatisticData(start=rounded_date, sum=solarCostRunningSum)
                 )
 
             # Process regular channels
@@ -186,22 +228,33 @@ class MeridianEnergyUsageSensor(SensorEntity):
                     start_date.hour >= 21 or
                     start_date.hour <= 6
                 ):
-                    nightRunningSum = nightRunningSum + float(
-                        unit_quantity_active_energy_volume
-                    )
+                    nightRunningSum = nightRunningSum + unit_quantity_active_energy_volume
                     nightStatistics.append(
                         StatisticData(start=rounded_date, sum=nightRunningSum)
+                    )
+                    
+                    # Calculate cost for night usage using configured rate
+                    night_cost = unit_quantity_active_energy_volume * self._night_rate
+                    nightCostRunningSum = nightCostRunningSum + night_cost
+                    nightCostStatistics.append(
+                        StatisticData(start=rounded_date, sum=nightCostRunningSum)
                     )
 
                 # Day rate channel
                 else:
-                    dayRunningSum = dayRunningSum + float(
-                        unit_quantity_active_energy_volume
-                    )
+                    dayRunningSum = dayRunningSum + unit_quantity_active_energy_volume
                     dayStatistics.append(
                         StatisticData(start=rounded_date, sum=dayRunningSum)
                     )
+                    
+                    # Calculate cost for day usage using configured rate
+                    day_cost = unit_quantity_active_energy_volume * self._day_rate
+                    dayCostRunningSum = dayCostRunningSum + day_cost
+                    dayCostStatistics.append(
+                        StatisticData(start=rounded_date, sum=dayCostRunningSum)
+                    )
 
+        # Add consumption statistics
         solarMetadata = StatisticMetaData(
             has_mean=False,
             has_sum=True,
@@ -231,3 +284,34 @@ class MeridianEnergyUsageSensor(SensorEntity):
             unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         )
         async_add_external_statistics(self.hass, nightMetadata, nightStatistics)
+        
+        # Add cost statistics
+        solarCostMetadata = StatisticMetaData(
+            has_mean=False,
+            has_sum=True,
+            name=f"{SENSOR_NAME} (Solar Export Cost)",
+            source=DOMAIN,
+            statistic_id=f"{DOMAIN}:return_to_grid_cost",
+            unit_of_measurement="NZD",
+        )
+        async_add_external_statistics(self.hass, solarCostMetadata, solarCostStatistics)
+
+        dayCostMetadata = StatisticMetaData(
+            has_mean=False,
+            has_sum=True,
+            name=f"{SENSOR_NAME} (Day Cost)",
+            source=DOMAIN,
+            statistic_id=f"{DOMAIN}:consumption_day_cost",
+            unit_of_measurement="NZD",
+        )
+        async_add_external_statistics(self.hass, dayCostMetadata, dayCostStatistics)
+
+        nightCostMetadata = StatisticMetaData(
+            has_mean=False,
+            has_sum=True,
+            name=f"{SENSOR_NAME} (Night Cost)",
+            source=DOMAIN,
+            statistic_id=f"{DOMAIN}:consumption_night_cost",
+            unit_of_measurement="NZD",
+        )
+        async_add_external_statistics(self.hass, nightCostMetadata, nightCostStatistics)
