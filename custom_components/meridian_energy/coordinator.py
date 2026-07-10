@@ -127,8 +127,12 @@ class MeridianCoordinator(DataUpdateCoordinator[CoordinatorData]):
             rows = last.get(sid) if last else None
             if rows:
                 row = rows[0]
-                start = datetime.fromtimestamp(row["start"], tz=timezone.utc) if isinstance(
-                    row["start"], (int, float)
-                ) else row["start"]
+                raw_start = row["start"]
+                if isinstance(raw_start, (int, float)):
+                    start = datetime.fromtimestamp(raw_start, tz=timezone.utc)
+                elif raw_start.tzinfo is None:
+                    start = raw_start.replace(tzinfo=timezone.utc)
+                else:
+                    start = raw_start.astimezone(timezone.utc)
                 baselines[sid] = Baseline(last_sum=row["sum"] or 0.0, last_start_utc=start)
         return baselines
