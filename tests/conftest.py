@@ -1,36 +1,66 @@
 """Shared test fixtures."""
+import importlib.abc
+import importlib.machinery
 import sys
 import types
 from pathlib import Path
+from unittest.mock import MagicMock
+
 
 # Make the custom_components package importable as a top-level module.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "custom_components"))
 
-# Stub the `homeassistant` package so pure, HA-free modules (e.g.
-# statistics.py) can be imported and unit-tested without installing the
-# full `homeassistant` dependency (which is not compatible with this
-# environment's Python version). Importing `meridian_energy.<anything>`
-# still executes the package's __init__.py and const.py, which import a
-# handful of homeassistant symbols at module scope, so those are stubbed
-# here. This does not affect production behavior — it only exists for the
-# test collection process.
-if "homeassistant" not in sys.modules:
-    ha = types.ModuleType("homeassistant")
 
-    ha_core = types.ModuleType("homeassistant.core")
-    ha_core.HomeAssistant = type("HomeAssistant", (), {})
+# --- Robust homeassistant auto-mock using MetaPathFinder ---
+# Intercept any import of `homeassistant` or `homeassistant.*` and synthesize
+# mock modules on-demand. This avoids fragility from hand-enumerating specific
+# homeassistant symbols: any missing attribute is fabricated as a MagicMock.
+#
+# Rationale: The pure modules under test (statistics, auth, api) never call
+# real Home Assistant code, so a mock homeassistant namespace is sufficient
+# and future-proof. HA-coupled modules (__init__, coordinator, sensor,
+# config_flow) are validated on a real Home Assistant instance, not in this
+# unit suite.
 
-    ha_config_entries = types.ModuleType("homeassistant.config_entries")
-    ha_config_entries.ConfigEntry = type("ConfigEntry", (), {})
+class _MockModule(types.ModuleType):
+    """A module that fabricates missing attributes as MagicMock() on-demand."""
 
-    ha_const = types.ModuleType("homeassistant.const")
+    def __getattr__(self, name):
+        # Fabricate and cache the attribute so repeated access returns the same mock.
+        mock = MagicMock()
+        setattr(self, name, mock)
+        return mock
 
-    class Platform:
-        SENSOR = "sensor"
 
-    ha_const.Platform = Platform
+class _HomeAssistantMetaPathFinder(importlib.abc.MetaPathFinder):
+    """Find and load homeassistant.* imports by synthesizing mock modules."""
 
-    sys.modules["homeassistant"] = ha
-    sys.modules["homeassistant.core"] = ha_core
-    sys.modules["homeassistant.config_entries"] = ha_config_entries
-    sys.modules["homeassistant.const"] = ha_const
+    def find_spec(self, fullname, path, target=None):
+        # Only intercept homeassistant and homeassistant.* imports.
+        if fullname == "homeassistant" or fullname.startswith("homeassistant."):
+            # Synthesize a loader that will create a _MockModule.
+            return importlib.machinery.ModuleSpec(
+                fullname,
+                _HomeAssistantLoader(),
+            )
+        return None
+
+
+class _HomeAssistantLoader(importlib.abc.Loader):
+    """Loader that creates _MockModule instances for homeassistant.* imports."""
+
+    def create_module(self, spec):
+        # Return a new _MockModule with __path__ = [] so submodule imports
+        # keep resolving through this finder.
+        mod = _MockModule(spec.name)
+        mod.__path__ = []  # Allows further submodule imports to resolve via finder
+        return mod
+
+    def exec_module(self, module):
+        # No additional setup needed; __getattr__ handles everything.
+        pass
+
+
+# Install the finder before any meridian_energy imports.
+if not any(isinstance(finder, _HomeAssistantMetaPathFinder) for finder in sys.meta_path):
+    sys.meta_path.insert(0, _HomeAssistantMetaPathFinder())
