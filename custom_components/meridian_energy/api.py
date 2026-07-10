@@ -103,9 +103,11 @@ class MeridianApi:
                 async with self._session.post(
                     f"{const.GRAPHQL_URL}?opName={op_name}", json=body, headers=headers
                 ) as resp:
-                    if resp.status == 401 and attempt == 0:
-                        self._auth._expires_at = 0  # force refresh, retry once
-                        continue
+                    if resp.status == 401:
+                        if attempt == 0:
+                            self._auth.invalidate_token()  # force refresh, retry once
+                            continue
+                        raise MeridianApiError("Unauthorized after token refresh")
                     data = await resp.json(content_type=None)
             except aiohttp.ClientError as err:
                 raise MeridianConnectionError(str(err)) from err
@@ -116,7 +118,7 @@ class MeridianApi:
 
     async def async_get_account(self) -> Account:
         """Fetch account number, first property id, and solar/register info."""
-        account_number = getattr(self._auth, "account_number", None)
+        account_number = self._auth.account_number
         data = await self._graphql(
             "account",
             _ACCOUNT_QUERY,
@@ -148,7 +150,7 @@ class MeridianApi:
     ) -> tuple[list[Interval], str | None]:
         """Fetch one page of hourly measurements; return (intervals, next_cursor)."""
         variables = {
-            "accountNumber": getattr(self._auth, "account_number", None),
+            "accountNumber": self._auth.account_number,
             "propertyId": property_id,
             "after": after,
             "last": last,

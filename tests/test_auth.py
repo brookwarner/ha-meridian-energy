@@ -134,3 +134,11 @@ async def test_refresh_network_error_raises_connection_error():
 async def test_decode_claims_rejects_non_string():
     with pytest.raises(MeridianAuthError):
         MeridianAuth.decode_claims(None)
+
+
+async def test_invalidate_token_forces_refresh():
+    async with aiohttp.ClientSession() as session:
+        auth = MeridianAuth(session, refresh_token="RT")
+        auth._expires_at = 9999999999
+        auth.invalidate_token()
+        assert auth._expires_at == 0.0

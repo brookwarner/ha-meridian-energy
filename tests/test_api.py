@@ -3,14 +3,16 @@ from datetime import date
 import aiohttp
 from aioresponses import aioresponses
 
+import pytest
+
 from meridian_energy import const
-from meridian_energy.api import MeridianApi
+from meridian_energy.api import MeridianApi, MeridianApiError
 from meridian_energy.auth import MeridianAuth
 
 
 class _StubAuth(MeridianAuth):
     def __init__(self):
-        pass  # bypass base init for tests
+        self._account_number = "A-TEST"  # bypass base init for tests
 
     async def async_valid_token(self):
         return "TESTTOKEN"
@@ -133,3 +135,64 @@ async def test_get_recent_paginates_until_no_next_page():
             m.post(f"{const.GRAPHQL_URL}?opName=measurements", status=200, payload=page2)
             intervals = await api.async_get_recent("349524", "CONSUMPTION", hours=336)
     assert len(intervals) == 2
+
+
+async def test_graphql_retries_once_on_401_then_succeeds():
+    payload = {
+        "data": {
+            "account": {
+                "number": "A-F53DF172",
+                "id": "acc1",
+                "properties": [
+                    {
+                        "id": "349524",
+                        "address": "1 Test St",
+                        "meterPoints": [
+                            {
+                                "id": "mp1",
+                                "registers": [
+                                    {"identifier": "R1", "isFeedIn": False},
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
+        }
+    }
+    async with aiohttp.ClientSession() as session:
+        api = MeridianApi(session, _StubAuth())
+        with aioresponses() as m:
+            m.post(f"{const.GRAPHQL_URL}?opName=account", status=401, payload={})
+            m.post(f"{const.GRAPHQL_URL}?opName=account", status=200, payload=payload)
+            acc = await api.async_get_account()
+    assert acc.account_number == "A-F53DF172"
+    assert acc.property_id == "349524"
+
+
+async def test_graphql_persistent_401_raises_api_error():
+    async with aiohttp.ClientSession() as session:
+        api = MeridianApi(session, _StubAuth())
+        with aioresponses() as m:
+            m.post(f"{const.GRAPHQL_URL}?opName=account", status=401, payload={})
+            m.post(f"{const.GRAPHQL_URL}?opName=account", status=401, payload={})
+            with pytest.raises(MeridianApiError):
+                await api.async_get_account()
+
+
+async def test_map_node_skips_future_hour():
+    edges = [
+        _edge("2.5", "2099-01-01T10:00:00+13:00", "2099-01-01T11:00:00+13:00")
+    ]
+    async with aiohttp.ClientSession() as session:
+        api = MeridianApi(session, _StubAuth())
+        with aioresponses() as m:
+            m.post(
+                f"{const.GRAPHQL_URL}?opName=measurements",
+                status=200,
+                payload=_measurements_payload(edges),
+            )
+            intervals, cursor = await api.async_get_measurements(
+                "349524", "CONSUMPTION", date(2026, 6, 2), 168
+            )
+    assert intervals == []

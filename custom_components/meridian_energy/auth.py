@@ -59,6 +59,10 @@ class MeridianAuth:
         """Return the account number decoded from the last id token."""
         return self._account_number
 
+    def invalidate_token(self) -> None:
+        """Force the next async_valid_token() call to refresh."""
+        self._expires_at = 0.0
+
     @staticmethod
     def decode_claims(id_token: str) -> dict:
         """Decode a JWT payload without verifying the signature."""
