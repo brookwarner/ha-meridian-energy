@@ -1,0 +1,45 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Meridian Energy",
+        "description": "Enter your Meridian account email. A one-time code will be emailed to you.",
+        "data": { "email": "Email" }
+      },
+      "otp": {
+        "title": "Enter code",
+        "description": "Enter the one-time code Meridian just emailed to you.",
+        "data": { "otp": "One-time code" }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate",
+        "description": "Your login expired. Enter your email to receive a new code.",
+        "data": { "email": "Email" }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not reach Meridian. Try again.",
+      "invalid_auth": "Could not start login for that email.",
+      "invalid_otp": "That code was not accepted. Try again."
+    },
+    "abort": {
+      "already_configured": "This account is already configured.",
+      "reauth_successful": "Re-authentication was successful."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Meridian Energy options",
+        "data": {
+          "use_api_cost": "Use Meridian's estimated costs (uncheck to use manual rates)",
+          "day_rate": "Day rate ($/kWh, manual)",
+          "night_rate": "Night rate ($/kWh, manual)",
+          "solar_rate": "Solar export rate ($/kWh, manual)",
+          "night_start_hour": "Night starts at hour (0-23)",
+          "night_end_hour": "Night ends at hour (0-23)"
+        }
+      }
+    }
+  }
+}
