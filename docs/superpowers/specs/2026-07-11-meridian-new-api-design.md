@@ -239,6 +239,49 @@ every 3h:  coordinator ──► valid idToken ──► GraphQL account + measu
   pagination; 401→refresh→retry.
 - config flow: two-step happy path, bad OTP, reauth.
 
+## Validation & rollout (no experimenting on prod)
+
+The only operation that writes to the live recorder is `async_add_external_statistics`.
+Everything upstream — OTP login, GraphQL measurement queries, the `build_statistics`
+transform — is read-only. So the pipeline is validated end-to-end against real data
+*before* any write. Confirmed available access: SSH `haos` (root), recorder DB at
+`/config/home-assistant_v2.db` (HA core 2026.6.4), local `sqlite3`. No sqlite3 on the
+HAOS side; no HA API token yet.
+
+**Phase 0 — Offline transform harness (zero HA writes).** First deliverable is a
+standalone dev CLI (`scripts/dev_validate.py`), *not* the integration: OTP login →
+fetch the user's real measurements → run `build_statistics` → assert every integrity
+invariant (monotonic, hour-aligned, deduped, non-negative, DST-correct) → print the
+day/night/solar/cost series. Also confirms account assumptions against reality
+(solar register present? exact cost-field path? real value ranges?). Reads Meridian
+only; writes nothing.
+
+**Phase 0.5 — Reproduce & diff existing history (the decisive check).** Copy the
+recorder DB read-only to local (`scp haos:/config/home-assistant_v2.db`), query the
+existing meridian `statistics_meta` + `statistics` rows to (a) capture the exact
+`statistic_id`s, units, and **current last cumulative sum** per series to use as the
+continuity baseline, and (b) diff the new pipeline's hourly kWh for an overlapping
+historical window against the values already stored (written by the old CSV path).
+Reproducing known-good history from the new source within rounding proves correctness
+*and* continuity. Then print the exact sums that *would* be written at the seam —
+demonstrating no spike/negative/reset before a single write. (Alternative to the DB
+copy: read stats via the HA WebSocket `recorder/statistics_during_period` with a
+user-provided long-lived token.)
+
+**Phase 1 — Isolated HA instance.** Restore a *copy* of the DB (or a Supervisor
+backup) into a disposable HA in Docker pinned to core 2026.6.4. Install the
+integration, do the OTP login, let it import, watch the Energy dashboard render.
+Seeded with the user's real historical sums, this proves the old→new seam is
+continuous on a throwaway DB that cannot affect prod.
+
+**Phase 2 — Production (only after 0/0.5/1 pass, and with explicit go-ahead).**
+Take a Supervisor backup first (`ha backups new` via SSH). Deploy via HACS/git.
+Monitor `ha core logs | grep -i meridian` and the Energy dashboard. Rollback path if
+ever needed: external statistics for a statistic_id can be cleared via Developer
+Tools → Statistics, and the backup restores prior state. Prod deploy is
+hard-to-reverse/outward-facing and is never done without the user's explicit
+confirmation.
+
 ## Out of scope / later
 
 - Register-based day/night split (revisit once live meter data can be inspected).
