@@ -31,7 +31,7 @@ class MeridianConfigFlow(ConfigFlow, domain=const.DOMAIN):
     @callback
     def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
         """Return the options flow."""
-        return MeridianOptionsFlowHandler(config_entry)
+        return MeridianOptionsFlowHandler()
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
         """Step 1: collect email and request an OTP."""
@@ -72,7 +72,11 @@ class MeridianConfigFlow(ConfigFlow, domain=const.DOMAIN):
                     const.CONF_ACCOUNT_NUMBER: bundle.account_number,
                 }
                 if self._reauth_entry:
-                    self.hass.config_entries.async_update_entry(self._reauth_entry, data=data)
+                    await self.async_set_unique_id(bundle.account_number)
+                    self._abort_if_unique_id_mismatch(reason="wrong_account")
+                    self.hass.config_entries.async_update_entry(
+                        self._reauth_entry, data_updates=data
+                    )
                     await self.hass.config_entries.async_reload(self._reauth_entry.entry_id)
                     return self.async_abort(reason="reauth_successful")
                 await self.async_set_unique_id(bundle.account_number)
@@ -86,9 +90,7 @@ class MeridianConfigFlow(ConfigFlow, domain=const.DOMAIN):
 
     async def async_step_reauth(self, entry_data: dict[str, Any]):
         """Start reauth."""
-        self._reauth_entry = self.hass.config_entries.async_get_entry(
-            self.context["entry_id"]
-        )
+        self._reauth_entry = self._get_reauth_entry()
         return await self.async_step_reauth_confirm()
 
     async def async_step_reauth_confirm(self, user_input: dict[str, Any] | None = None):
@@ -96,17 +98,19 @@ class MeridianConfigFlow(ConfigFlow, domain=const.DOMAIN):
         if user_input is None and self._reauth_entry is not None:
             return self.async_show_form(
                 step_id="reauth_confirm",
-                data_schema=vol.Schema({vol.Required(CONF_EMAIL): str}),
+                data_schema=vol.Schema(
+                    {
+                        vol.Required(
+                            CONF_EMAIL, default=self._reauth_entry.data.get(CONF_EMAIL)
+                        ): str
+                    }
+                ),
             )
         return await self.async_step_user(user_input)
 
 
 class MeridianOptionsFlowHandler(OptionsFlow):
     """Options: cost source, rates, and night window."""
-
-    def __init__(self, config_entry: ConfigEntry) -> None:
-        """Store the entry."""
-        self.config_entry = config_entry
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None):
         """Manage options."""

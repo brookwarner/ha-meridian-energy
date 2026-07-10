@@ -24,7 +24,8 @@
     },
     "abort": {
       "already_configured": "This account is already configured.",
-      "reauth_successful": "Re-authentication was successful."
+      "reauth_successful": "Re-authentication was successful.",
+      "wrong_account": "The re-authenticated account does not match this entry. Remove and re-add the integration for the new account."
     }
   },
   "options": {
