@@ -17,7 +17,7 @@ async def async_setup_entry(
 ) -> None:
     """Set up the sensor from a config entry."""
     coordinator: MeridianCoordinator = entry.runtime_data
-    async_add_entities([MeridianEnergyUsageSensor(coordinator, entry)])
+    async_add_entities([MeridianEnergyUsageSensor(coordinator)])
 
 
 class MeridianEnergyUsageSensor(CoordinatorEntity[MeridianCoordinator], SensorEntity):
@@ -27,7 +27,7 @@ class MeridianEnergyUsageSensor(CoordinatorEntity[MeridianCoordinator], SensorEn
     _attr_icon = "mdi:meter-electric"
     _attr_name = const.SENSOR_NAME
 
-    def __init__(self, coordinator: MeridianCoordinator, entry: ConfigEntry) -> None:
+    def __init__(self, coordinator: MeridianCoordinator) -> None:
         """Initialise the sensor."""
         super().__init__(coordinator)
         self._attr_unique_id = const.DOMAIN

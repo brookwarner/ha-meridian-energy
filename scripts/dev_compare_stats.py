@@ -15,7 +15,7 @@ def main(db_path: str) -> None:
     con = sqlite3.connect(f"file:{db_path}?immutable=1", uri=True)
     cur = con.cursor()
     cur.execute(
-        "SELECT id, statistic_id, unit_of_measurement, has_sum "
+        "SELECT id, statistic_id, unit_of_measurement "
         "FROM statistics_meta WHERE statistic_id LIKE 'meridian_energy:%' ORDER BY statistic_id"
     )
     metas = cur.fetchall()
@@ -23,7 +23,7 @@ def main(db_path: str) -> None:
         print("No meridian_energy statistics found in this DB.")
         return
     print(f"{'statistic_id':<40} {'unit':<6} {'last_sum':>14} last_start(UTC)")
-    for meta_id, sid, unit, has_sum in metas:
+    for meta_id, sid, unit in metas:
         cur.execute(
             "SELECT start_ts, sum FROM statistics WHERE metadata_id=? "
             "ORDER BY start_ts DESC LIMIT 1",

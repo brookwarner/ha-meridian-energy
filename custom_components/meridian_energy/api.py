@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 import aiohttp
 
 from . import const
-from .auth import MeridianAuth, MeridianConnectionError
+from .auth import MeridianAuth, MeridianAuthError, MeridianConnectionError
 from .statistics import Interval
 
 _LOGGER = logging.getLogger(__name__)
@@ -107,14 +107,21 @@ class MeridianApi:
                         if attempt == 0:
                             self._auth.invalidate_token()  # force refresh, retry once
                             continue
-                        raise MeridianApiError("Unauthorized after token refresh")
-                    data = await resp.json(content_type=None)
+                        raise MeridianAuthError("Unauthorized after token refresh")
+                    if resp.status >= 500:
+                        raise MeridianConnectionError(f"GraphQL server error {resp.status}")
+                    try:
+                        data = await resp.json(content_type=None)
+                    except ValueError as err:
+                        raise MeridianConnectionError(
+                            f"Non-JSON GraphQL response: {err}"
+                        ) from err
             except aiohttp.ClientError as err:
                 raise MeridianConnectionError(str(err)) from err
             if data.get("errors"):
                 raise MeridianApiError(str(data["errors"]))
             return data["data"]
-        raise MeridianApiError("Unauthorized after token refresh")
+        raise MeridianAuthError("Unauthorized after token refresh")
 
     async def async_get_account(self) -> Account:
         """Fetch account number, first property id, and solar/register info."""
@@ -174,7 +181,7 @@ class MeridianApi:
         self, property_id: str, direction: str, hours: int
     ) -> list[Interval]:
         """Paginate measurements covering roughly the last `hours` hours."""
-        end_on = date.today()
+        end_on = datetime.now(_TZ).date()
         collected: list[Interval] = []
         after: str | None = None
         remaining = hours

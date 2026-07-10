@@ -8,7 +8,6 @@ Prompts for the OTP code Meridian emails you. Writes nothing to Home Assistant.
 
 import asyncio
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "custom_components"))
@@ -19,7 +18,6 @@ from meridian_energy import const  # noqa: E402
 from meridian_energy.auth import MeridianAuth  # noqa: E402
 from meridian_energy.api import MeridianApi  # noqa: E402
 from meridian_energy.statistics import (  # noqa: E402
-    Baseline,
     NightWindow,
     build_statistics,
 )

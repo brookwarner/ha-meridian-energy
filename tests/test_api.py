@@ -7,7 +7,7 @@ import pytest
 
 from meridian_energy import const
 from meridian_energy.api import MeridianApi, MeridianApiError
-from meridian_energy.auth import MeridianAuth
+from meridian_energy.auth import MeridianAuth, MeridianAuthError, MeridianConnectionError
 
 
 class _StubAuth(MeridianAuth):
@@ -170,13 +170,31 @@ async def test_graphql_retries_once_on_401_then_succeeds():
     assert acc.property_id == "349524"
 
 
-async def test_graphql_persistent_401_raises_api_error():
+async def test_graphql_persistent_401_raises_auth_error():
     async with aiohttp.ClientSession() as session:
         api = MeridianApi(session, _StubAuth())
         with aioresponses() as m:
             m.post(f"{const.GRAPHQL_URL}?opName=account", status=401, payload={})
             m.post(f"{const.GRAPHQL_URL}?opName=account", status=401, payload={})
-            with pytest.raises(MeridianApiError):
+            with pytest.raises(MeridianAuthError):
+                await api.async_get_account()
+
+
+async def test_graphql_5xx_raises_connection_error():
+    async with aiohttp.ClientSession() as session:
+        api = MeridianApi(session, _StubAuth())
+        with aioresponses() as m:
+            m.post(f"{const.GRAPHQL_URL}?opName=account", status=500, payload={})
+            with pytest.raises(MeridianConnectionError):
+                await api.async_get_account()
+
+
+async def test_graphql_non_json_raises_connection_error():
+    async with aiohttp.ClientSession() as session:
+        api = MeridianApi(session, _StubAuth())
+        with aioresponses() as m:
+            m.post(f"{const.GRAPHQL_URL}?opName=account", status=200, body="not json")
+            with pytest.raises(MeridianConnectionError):
                 await api.async_get_account()
 
 
