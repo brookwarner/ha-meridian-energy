@@ -66,3 +66,71 @@ def bucket_of(interval: Interval, window: NightWindow) -> tuple[str, str]:
     if is_night(interval.local_hour, window):
         return (const.STAT_NIGHT, const.STAT_NIGHT_COST)
     return (const.STAT_DAY, const.STAT_DAY_COST)
+
+
+ALL_ENERGY_IDS = (const.STAT_DAY, const.STAT_NIGHT, const.STAT_SOLAR)
+ALL_COST_IDS = (const.STAT_DAY_COST, const.STAT_NIGHT_COST, const.STAT_SOLAR_COST)
+
+
+def _rate_for(cost_id: str, rates: Rates) -> float:
+    if cost_id == const.STAT_DAY_COST:
+        return rates.day
+    if cost_id == const.STAT_NIGHT_COST:
+        return rates.night
+    return rates.solar
+
+
+def build_statistics(
+    intervals: list[Interval],
+    window: NightWindow,
+    rates: Rates | None,
+    baselines: dict[str, Baseline],
+) -> dict[str, list[dict]]:
+    """Turn intervals into continuous cumulative statistics per statistic_id.
+
+    Energy sums continue from the recorder baseline and are monotonic;
+    only hours strictly after the baseline's last hour are appended.
+    Cost sums are cumulative and may decrease (e.g. solar credits).
+    """
+    # Group deduplicated (last-wins) intervals per energy bucket.
+    grouped: dict[str, dict[datetime, Interval]] = {sid: {} for sid in ALL_ENERGY_IDS}
+    for iv in intervals:
+        energy_id, _ = bucket_of(iv, window)
+        grouped[energy_id][iv.start_utc] = iv  # last occurrence wins
+
+    result: dict[str, list[dict]] = {sid: [] for sid in (*ALL_ENERGY_IDS, *ALL_COST_IDS)}
+
+    for energy_id in ALL_ENERGY_IDS:
+        cost_id = {
+            const.STAT_DAY: const.STAT_DAY_COST,
+            const.STAT_NIGHT: const.STAT_NIGHT_COST,
+            const.STAT_SOLAR: const.STAT_SOLAR_COST,
+        }[energy_id]
+
+        e_base = baselines.get(energy_id, Baseline(0.0, None))
+        c_base = baselines.get(cost_id, Baseline(0.0, None))
+        e_running = e_base.last_sum
+        c_running = c_base.last_sum
+
+        for start in sorted(grouped[energy_id]):
+            iv = grouped[energy_id][start]
+            if e_base.last_start_utc is not None and start <= e_base.last_start_utc:
+                continue  # already imported
+            if iv.kwh < 0:
+                _LOGGER.warning(
+                    "Skipping negative energy %.3f at %s for %s", iv.kwh, start, energy_id
+                )
+                continue
+            e_running += iv.kwh
+            result[energy_id].append({"start": start, "sum": round(e_running, 3)})
+
+            if rates is not None:
+                cost = iv.kwh * _rate_for(cost_id, rates)
+            elif iv.cost is not None:
+                cost = iv.cost
+            else:
+                cost = 0.0
+            c_running += cost
+            result[cost_id].append({"start": start, "sum": round(c_running, 4)})
+
+    return result
