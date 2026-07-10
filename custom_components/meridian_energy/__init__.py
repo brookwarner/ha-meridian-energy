@@ -60,5 +60,15 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # to start the OTP reauth flow. Statistics history is unaffected (keyed
         # by statistic_id, not the entry).
         new_data = {CONF_EMAIL: entry.data.get(CONF_EMAIL)}
-        hass.config_entries.async_update_entry(entry, data=new_data, version=2)
+        # Preserve any custom cost rates the user set under v1 so they aren't lost;
+        # they live in options under the same keys the options flow reads. The cost
+        # default (use_api_cost) is intentionally left at its default so migrated
+        # users get API-estimated costs unless they opt back to manual rates.
+        preserved_options = dict(entry.options)
+        for key in (const.CONF_DAY_RATE, const.CONF_NIGHT_RATE, const.CONF_SOLAR_RATE):
+            if key in entry.data and key not in preserved_options:
+                preserved_options[key] = entry.data[key]
+        hass.config_entries.async_update_entry(
+            entry, data=new_data, options=preserved_options, version=2
+        )
     return True
