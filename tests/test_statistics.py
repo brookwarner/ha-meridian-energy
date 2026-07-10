@@ -110,3 +110,25 @@ def test_dst_autumn_boundary_two_local_2am_hours_are_distinct_points():
     out = build_statistics(ivs, W, None, {})
     # Both are night (hour 2), distinct instants -> two monotonic points.
     assert [p["sum"] for p in out[const.STAT_NIGHT]] == [1.0, 2.0]
+
+
+def test_build_cost_continues_from_cost_baseline():
+    base = datetime(2026, 6, 1, 0, tzinfo=timezone.utc)
+    ivs = [_uiv(1, 10, kwh=2.0, cost=0.25), _uiv(2, 11, kwh=2.0, cost=0.25)]
+    baselines = {
+        const.STAT_DAY: Baseline(100.0, base),
+        const.STAT_DAY_COST: Baseline(10.0, base),
+    }
+    out = build_statistics(ivs, W, None, baselines)
+    cost_sums = [p["sum"] for p in out[const.STAT_DAY_COST]]
+    assert cost_sums == [10.25, 10.50]  # continues from cost baseline 10.0, not 0
+
+def test_build_cost_can_decrease_for_credits():
+    out = build_statistics([_uiv(1, 10, kwh=1.0, cost=-0.40)], W, None, {})
+    assert out[const.STAT_DAY_COST][0]["sum"] == -0.40  # credits allowed, no monotonic guard on cost
+
+def test_build_negative_energy_skip_also_skips_cost():
+    ivs = [_uiv(1, 10, kwh=-4.0), _uiv(2, 11, kwh=2.0)]
+    out = build_statistics(ivs, W, None, {})
+    assert len(out[const.STAT_DAY]) == 1
+    assert len(out[const.STAT_DAY_COST]) == 1  # skipped-energy hour contributes no cost point

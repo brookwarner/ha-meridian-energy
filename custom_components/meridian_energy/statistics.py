@@ -114,6 +114,10 @@ def build_statistics(
 
         for start in sorted(grouped[energy_id]):
             iv = grouped[energy_id][start]
+            # Gate cost points on the ENERGY baseline: energy and cost are always
+            # emitted together for the same hour below, so a cost series can
+            # never outrun its paired energy series (a separate cost-baseline
+            # check here would be redundant).
             if e_base.last_start_utc is not None and start <= e_base.last_start_utc:
                 continue  # already imported
             if iv.kwh < 0:
