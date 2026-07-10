@@ -62,6 +62,8 @@ class MeridianAuth:
     @staticmethod
     def decode_claims(id_token: str) -> dict:
         """Decode a JWT payload without verifying the signature."""
+        if not isinstance(id_token, str) or not id_token:
+            raise MeridianAuthError("id token missing or not a string")
         try:
             payload_b64 = id_token.split(".")[1]
             payload_b64 += "=" * (-len(payload_b64) % 4)  # restore padding
@@ -99,6 +101,10 @@ class MeridianAuth:
                 const.EMAIL_OTP_URL, json=payload, headers=_JSON_HEADERS
             ) as resp:
                 data = await resp.json(content_type=None)
+                if resp.status >= 500:
+                    raise MeridianConnectionError(
+                        f"OTP validation server error ({resp.status})"
+                    )
                 if resp.status >= 400 or not data.get("customToken"):
                     raise MeridianAuthError(
                         f"OTP validation failed ({resp.status}): {data.get('error')}"
@@ -114,6 +120,10 @@ class MeridianAuth:
             url, json={"token": custom_token, "returnSecureToken": True}
         ) as resp:
             data = await resp.json(content_type=None)
+            if resp.status >= 500:
+                raise MeridianConnectionError(
+                    f"Custom-token exchange server error ({resp.status})"
+                )
             if resp.status >= 400:
                 raise MeridianAuthError(f"Custom-token exchange failed: {data.get('error')}")
         self._store_tokens(data["idToken"], data["refreshToken"], data.get("expiresIn", "3600"))
@@ -139,6 +149,10 @@ class MeridianAuth:
         try:
             async with self._session.post(url, data=data) as resp:
                 body = await resp.json(content_type=None)
+                if resp.status >= 500:
+                    raise MeridianConnectionError(
+                        f"Token refresh server error ({resp.status})"
+                    )
                 if resp.status >= 400:
                     raise MeridianAuthError(f"Token refresh failed: {body.get('error')}")
         except aiohttp.ClientError as err:

@@ -7,7 +7,7 @@ import pytest
 from aioresponses import aioresponses
 
 from meridian_energy import const
-from meridian_energy.auth import MeridianAuth, MeridianAuthError
+from meridian_energy.auth import MeridianAuth, MeridianAuthError, MeridianConnectionError
 
 
 def _fake_id_token(account="A-F53DF172", exp=None):
@@ -86,3 +86,51 @@ async def test_valid_token_refresh_failure_raises_auth_error():
             )
             with pytest.raises(MeridianAuthError):
                 await auth.async_valid_token()
+
+
+async def test_request_otp_5xx_raises_connection_error():
+    async with aiohttp.ClientSession() as session:
+        auth = MeridianAuth(session)
+        with aioresponses() as m:
+            m.post(const.EMAIL_CONNECTOR_URL, status=500, payload={"error": "boom"})
+            with pytest.raises(MeridianConnectionError):
+                await auth.request_otp("me@example.com")
+
+
+async def test_validate_otp_5xx_raises_connection_error():
+    async with aiohttp.ClientSession() as session:
+        auth = MeridianAuth(session)
+        with aioresponses() as m:
+            m.post(const.EMAIL_OTP_URL, status=500, payload={"error": "boom"})
+            with pytest.raises(MeridianConnectionError):
+                await auth.validate_otp("me@example.com", "123456", "jid")
+
+
+async def test_refresh_5xx_raises_connection_error():
+    async with aiohttp.ClientSession() as session:
+        auth = MeridianAuth(session, refresh_token="RT")
+        with aioresponses() as m:
+            m.post(
+                f"{const.SECURETOKEN_URL}?key={const.CIAM_API_KEY}",
+                status=500,
+                payload={"error": {"message": "server error"}},
+            )
+            with pytest.raises(MeridianConnectionError):
+                await auth.async_valid_token()
+
+
+async def test_refresh_network_error_raises_connection_error():
+    async with aiohttp.ClientSession() as session:
+        auth = MeridianAuth(session, refresh_token="RT")
+        with aioresponses() as m:
+            m.post(
+                f"{const.SECURETOKEN_URL}?key={const.CIAM_API_KEY}",
+                exception=aiohttp.ClientError(),
+            )
+            with pytest.raises(MeridianConnectionError):
+                await auth.async_valid_token()
+
+
+async def test_decode_claims_rejects_non_string():
+    with pytest.raises(MeridianAuthError):
+        MeridianAuth.decode_claims(None)
