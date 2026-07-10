@@ -157,6 +157,54 @@ the config entry. Preserving it requires:
 3. **Idempotent re-import** with a small overlap window so `ACTUAL` reads that
    arrive late correct earlier `ESTIMATED`/missing points without breaking sums.
 
+## Data integrity guarantees (prevents spikes / negatives / resets / bad format)
+
+The previous integration exhibited: random resets to zero, giant negative values,
+giant spikes, and data HA's Energy dashboard rejected. These are all
+external-statistics `sum` failures. The rewrite treats the following as a hard
+contract, enforced in `statistics.py` and covered by tests.
+
+1. **Cumulative, never per-interval.** `StatisticData.sum` is a running cumulative
+   total; `state` (if set) is the per-interval value. They are never conflated.
+2. **Baseline continuation, never reset.** The running sum for each statistic_id
+   starts from the recorder's last known sum (`get_last_statistics`), not 0.
+   Reset to 0 happens *only* when the statistic has no prior rows (true first run).
+   → fixes "random reset to zero" and the negative seam it causes.
+3. **Strict chronological order.** The API returns newest-first via `last:N` +
+   cursors. All intervals are collected, then **sorted ascending by start instant**
+   before accumulating. → fixes zig-zag negatives.
+4. **Monotonic non-decreasing sums.** Consumption/generation values are ≥ 0, so
+   each statistic's sum only increases. Negative or absurd interval values are
+   rejected (logged, skipped) rather than injected. An assertion in tests verifies
+   `sum[i] >= sum[i-1]` for every produced series. → fixes negatives/spikes.
+5. **One point per hour, de-duplicated.** Collapse any duplicate/overlapping
+   intervals to a single point per hour boundary (actual-wins). Duplicate `start`
+   values corrupt sums. → fixes spikes.
+6. **ACTUAL reads only + deterministic overlap re-import.** Query
+   `readingQualityType:"ACTUAL"`. Each run re-imports a small bounded overlap
+   window (e.g. last ~48h), recomputing that window's sums **from the pre-overlap
+   baseline** so a late-corrected value produces a consistent series with no seam,
+   never a spike. → fixes spikes from late corrections.
+7. **Hour-aligned, tz-aware, DST-safe timestamps.** Each `start` is timezone-aware
+   at the top of the hour. We use the API's offset-aware `startAt` (hourly, already
+   Pacific/Auckland) as the absolute instant; HA stores UTC internally. Day/night
+   bucketing uses the *local* hour derived from that offset-aware time, so NZ DST
+   transitions (duplicated 02:00 in autumn, skipped 02:00 in spring) are handled
+   by real instants rather than naïve local arithmetic. Any interval not aligned to
+   an exact hour is dropped/logged. → fixes "wrong format" rejections.
+8. **Locked units & IDs.** Each statistic_id keeps a fixed
+   `unit_of_measurement` (kWh / NZD) and `has_sum=True`, `has_mean=False`, matching
+   what already exists in the recorder. Changing a unit for an existing ID breaks
+   HA statistics, so units are constants, never derived from API `unit` strings
+   (API values are validated against the expected unit, not trusted blindly).
+9. **Per-bucket isolation.** day, night, return_to_grid, and each `_cost` series
+   carry independent baselines and running sums — never shared.
+
+**Verification:** unit tests assert monotonicity, no duplicate hours, correct
+hour-alignment, continuation across a simulated baseline, and DST-boundary
+correctness. Post-implementation, validated live in HA by watching the Energy
+dashboard render without spikes/negatives (the `verify` skill / real run).
+
 ## Data flow
 
 ```
