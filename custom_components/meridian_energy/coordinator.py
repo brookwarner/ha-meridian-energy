@@ -8,6 +8,13 @@ from datetime import datetime, timedelta, timezone
 
 from homeassistant.components.recorder import get_instance
 from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
+
+try:
+    from homeassistant.components.recorder.models import StatisticMeanType
+
+    _MEAN_METADATA = {"mean_type": StatisticMeanType.NONE}
+except ImportError:  # HA older than the mean_type change
+    _MEAN_METADATA = {"has_mean": False}
 from homeassistant.components.recorder.statistics import (
     async_add_external_statistics,
     get_last_statistics,
@@ -102,7 +109,6 @@ class MeridianCoordinator(DataUpdateCoordinator[CoordinatorData]):
             if not points:
                 continue
             metadata = StatisticMetaData(
-                has_mean=False,
                 has_sum=True,
                 name=_STAT_NAMES[sid],
                 source=const.DOMAIN,
@@ -110,6 +116,7 @@ class MeridianCoordinator(DataUpdateCoordinator[CoordinatorData]):
                 unit_of_measurement=(
                     const.UNIT_ENERGY if sid in _ENERGY_IDS else const.UNIT_COST
                 ),
+                **_MEAN_METADATA,
             )
             stat_data = [StatisticData(start=p["start"], sum=p["sum"]) for p in points]
             async_add_external_statistics(self.hass, metadata, stat_data)
