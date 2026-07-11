@@ -227,12 +227,21 @@ class MeridianApi:
 
     @staticmethod
     def _extract_cost(node: dict) -> float | None:
-        """Sum estimated cost-incl-tax across statistics entries, if present."""
+        """Return this interval's usage-based cost in NZD, or None.
+
+        Meridian returns estimatedAmount in CENTS. Each interval carries a
+        STANDING_CHARGE_COST (a flat daily fee, constant per hour) plus a
+        usage-based charge (CONSUMPTION_COST, or a generation credit for
+        export). The per-kWh cost statistic should reflect the usage-based
+        charge only, so the flat standing charge is excluded. Cents -> NZD.
+        """
         stats = (node.get("metaData") or {}).get("statistics") or []
         total = None
         for entry in stats:
+            if entry.get("type") == "STANDING_CHARGE_COST":
+                continue
             incl = entry.get("costInclTax") or {}
             amount = incl.get("estimatedAmount")
             if amount is not None:
                 total = (total or 0.0) + float(amount)
-        return total
+        return None if total is None else total / 100.0

@@ -52,8 +52,10 @@ def _edge(value, start_at, end_at, cost=0.5):
             "endAt": end_at,
             "metaData": {
                 "statistics": [
-                    {"label": "Cost", "type": "COST", "value": None,
-                     "costInclTax": {"estimatedAmount": cost}}
+                    {"label": "STANDING_CHARGE_...", "type": "STANDING_CHARGE_COST",
+                     "value": None, "costInclTax": {"estimatedAmount": "8.35523"}},
+                    {"label": "CONSUMPTION_CHARGE_...", "type": "CONSUMPTION_COST",
+                     "value": None, "costInclTax": {"estimatedAmount": cost}},
                 ]
             },
         }
@@ -114,7 +116,7 @@ async def test_get_measurements_maps_intervals_utc_and_localhour():
     assert iv.kwh == 2.5
     assert iv.local_hour == 10
     assert iv.direction == "consumption"
-    assert iv.cost == 0.7
+    assert iv.cost == pytest.approx(0.007)
     assert iv.start_utc.utcoffset().total_seconds() == 0
     assert iv.start_utc.hour == 22  # 10:00+12:00 == 22:00Z previous handling
 
@@ -214,3 +216,30 @@ async def test_map_node_skips_future_hour():
                 "349524", "CONSUMPTION", date(2026, 6, 2), 168
             )
     assert intervals == []
+
+
+def test_extract_cost_excludes_standing_charge_and_converts_cents():
+    node = {
+        "metaData": {
+            "statistics": [
+                {"label": "STANDING_CHARGE_...", "type": "STANDING_CHARGE_COST",
+                 "value": None, "costInclTax": {"estimatedAmount": "8.35523"}},
+                {"label": "CONSUMPTION_CHARGE_...", "type": "CONSUMPTION_COST",
+                 "value": "2.532", "costInclTax": {"estimatedAmount": "58.49806"}},
+            ]
+        }
+    }
+    assert MeridianApi._extract_cost(node) == pytest.approx(0.5849806)
+
+    standing_only_node = {
+        "metaData": {
+            "statistics": [
+                {"label": "STANDING_CHARGE_...", "type": "STANDING_CHARGE_COST",
+                 "value": None, "costInclTax": {"estimatedAmount": "8.35523"}},
+            ]
+        }
+    }
+    assert MeridianApi._extract_cost(standing_only_node) is None
+
+    empty_node = {"metaData": {"statistics": []}}
+    assert MeridianApi._extract_cost(empty_node) is None
