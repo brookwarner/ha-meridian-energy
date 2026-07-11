@@ -9,25 +9,44 @@
 
 ## What this fork adds
 
+* **New Meridian API support (2.0.0)** — Meridian retired the old
+  `secure.meridianenergy.co.nz` portal for the new app
+  (`app.meridianenergy.nz`, GraphQL API with Firebase **email one-time-code**
+  login). This fork migrates to it; the old CSV/password integration no longer works.
 * **Historical statistics import** into the Home Assistant recorder (long-term
-  statistics / Energy dashboard), with persistent import-state across restarts
-* **Day / Night / Solar export** usage sensors
-* Configurable historical-data window and incremental consumption processing
-* Fixes around duplicate usage and data backfill (the areas reported in upstream
-  issues [#6](https://github.com/codyc1515/ha-meridian-energy/issues/6) /
-  [#7](https://github.com/codyc1515/ha-meridian-energy/issues/7))
+  statistics / Energy dashboard). Cumulative sums **continue from the recorder's
+  last value** (no resets/spikes) and **backfill any gap** since the last reading.
+* **Day / Night / Solar export** usage + cost sensors. Cost uses Meridian's own
+  per-interval estimate by default, or your manually configured rates.
+* Async coordinator; compatible with Home Assistant 2026.6 (`mean_type`) and
+  ready for 2026.11 (`unit_class`).
 
-## Compatible plans
+## Tested against
 
-* Consumer EV Plan (Day & Night rates, with Solar)
+* **No-solar, flat single-rate, single-ICP** account on HA 2026.6.4 — fully
+  verified end-to-end (auth, import, continuity, gap backfill, cost vs actual bill).
 
-Possibly others - let me know if you find one that works.
+The following paths exist in the code but are **not yet verified against a real
+account** — please open an issue with results if you have one:
+
+* **Solar / feed-in** export (`return_to_grid`)
+* **Time-of-use** plans (different day vs night prices)
+* **Multiple ICPs / properties** (currently only the first property is used)
 
 ## Getting started
-You will need to have an existing active consumer Meridian Energy account.
+You will need an existing active Meridian Energy account, and access to the email
+inbox for that account (a one-time code is emailed to you at sign-in).
 
 ## Installation
-Once installed, simply set-up from the `Devices and services` area. The first field is email and the next field is password for your account.
+Set up from **Settings → Devices & services → Add Integration → Meridian Energy**.
+Enter your account **email**; Meridian emails you a **one-time code**, which you
+enter on the next screen. (There is no password — Meridian's new app uses one-time
+codes.)
+
+### Upgrading from 1.x
+On first start after upgrading, your existing entry migrates automatically and
+Home Assistant will prompt you to **re-authenticate** (enter your email + the
+emailed one-time code). Your statistics history and any custom rates are preserved.
 
 ### HACS (recommended)
 1. [Install HACS](https://hacs.xyz/docs/setup/download), if you did not already
@@ -38,15 +57,13 @@ Once installed, simply set-up from the `Devices and services` area. The first fi
 ### Manually
 Copy the `custom_components/meridian_energy` folder into your Home Assistant `config/custom_components/` directory, then restart Home Assistant.
 
-## Known issues
-
-* Labels don't show when using the config_flow
-
 ## Future enhancements
 Your support is welcomed.
 
-* Support for multiple ICPs (haven't tried a login with multiple ICPs)
-* Support for energy rates (currently need to be set-up manually and is static thereafter)
+* Verify / support **solar feed-in**, **time-of-use** plans, and **multiple
+  ICPs/properties** (see *Tested against* above)
+* Optional separate **daily fixed charge** (standing charge) cost sensor — the
+  per-kWh cost intentionally excludes it today
 
 ## Acknowledgements
 This integration is not supported / endorsed by, nor affiliated with, Meridian Energy.
