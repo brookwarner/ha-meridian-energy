@@ -76,7 +76,7 @@ class MeridianConfigFlow(ConfigFlow, domain=const.DOMAIN):
                     if self._reauth_entry.unique_id is not None:
                         self._abort_if_unique_id_mismatch(reason="wrong_account")
                     self.hass.config_entries.async_update_entry(
-                        self._reauth_entry, data_updates=data, unique_id=bundle.account_number
+                        self._reauth_entry, data=data, unique_id=bundle.account_number
                     )
                     await self.hass.config_entries.async_reload(self._reauth_entry.entry_id)
                     return self.async_abort(reason="reauth_successful")
