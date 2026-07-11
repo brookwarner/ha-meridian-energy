@@ -18,7 +18,7 @@ class _StubAuth(MeridianAuth):
         return "TESTTOKEN"
 
 
-def _measurements_payload(edges, has_next=False, end_cursor=None):
+def _measurements_payload(edges, has_prev=False, start_cursor=None):
     return {
         "data": {
             "account": {
@@ -28,10 +28,10 @@ def _measurements_payload(edges, has_next=False, end_cursor=None):
                     "measurements": {
                         "__typename": "MeasurementConnection",
                         "pageInfo": {
-                            "hasNextPage": has_next,
-                            "hasPreviousPage": False,
-                            "startCursor": "s",
-                            "endCursor": end_cursor,
+                            "hasNextPage": False,
+                            "hasPreviousPage": has_prev,
+                            "startCursor": start_cursor,
+                            "endCursor": "e",
                         },
                         "edges": edges,
                     },
@@ -121,14 +121,14 @@ async def test_get_measurements_maps_intervals_utc_and_localhour():
     assert iv.start_utc.hour == 22  # 10:00+12:00 == 22:00Z previous handling
 
 
-async def test_get_recent_paginates_until_no_next_page():
+async def test_get_recent_paginates_until_no_previous_page():
     page1 = _measurements_payload(
         [_edge("1", "2026-06-01T09:00:00+12:00", "2026-06-01T10:00:00+12:00")],
-        has_next=True, end_cursor="CUR1",
+        has_prev=True, start_cursor="CUR1",
     )
     page2 = _measurements_payload(
         [_edge("1", "2026-06-01T08:00:00+12:00", "2026-06-01T09:00:00+12:00")],
-        has_next=False, end_cursor=None,
+        has_prev=False, start_cursor=None,
     )
     async with aiohttp.ClientSession() as session:
         api = MeridianApi(session, _StubAuth())

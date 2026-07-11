@@ -116,6 +116,7 @@ class MeridianCoordinator(DataUpdateCoordinator[CoordinatorData]):
                 unit_of_measurement=(
                     const.UNIT_ENERGY if sid in _ENERGY_IDS else const.UNIT_COST
                 ),
+                unit_class=("energy" if sid in _ENERGY_IDS else None),
                 **_MEAN_METADATA,
             )
             stat_data = [StatisticData(start=p["start"], sum=p["sum"]) for p in points]

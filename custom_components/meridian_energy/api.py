@@ -35,12 +35,12 @@ query account($accountNumber: String!, $activeFrom: DateTime) {
 """.strip()
 
 _MEASUREMENTS_QUERY = """
-query measurements($accountNumber: String!, $propertyId: ID!, $after: String, $last: Int, $endOn: Date, $readingFrequencyType: ReadingFrequencyType!, $readingDirectionType: ReadingDirectionType, $readingQualityType: ReadingQualityType) {
+query measurements($accountNumber: String!, $propertyId: ID!, $before: String, $last: Int, $endOn: Date, $readingFrequencyType: ReadingFrequencyType!, $readingDirectionType: ReadingDirectionType, $readingQualityType: ReadingQualityType) {
   account(accountNumber: $accountNumber) {
     id
     property(id: $propertyId) {
       id
-      measurements(after: $after, last: $last, endOn: $endOn, timezone: "Pacific/Auckland", utilityFilters: [{electricityFilters: {readingDirection: $readingDirectionType, readingQuality: $readingQualityType, readingFrequencyType: $readingFrequencyType}}]) {
+      measurements(before: $before, last: $last, endOn: $endOn, timezone: "Pacific/Auckland", utilityFilters: [{electricityFilters: {readingDirection: $readingDirectionType, readingQuality: $readingQualityType, readingFrequencyType: $readingFrequencyType}}]) {
         ... on MeasurementConnection {
           pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
           edges {
@@ -153,13 +153,19 @@ class MeridianApi:
         direction: str,
         end_on: date,
         last: int,
-        after: str | None = None,
+        before: str | None = None,
     ) -> tuple[list[Interval], str | None]:
-        """Fetch one page of hourly measurements; return (intervals, next_cursor)."""
+        """Fetch one page of hourly measurements; return (intervals, prev_cursor).
+
+        prev_cursor drives BACKWARD pagination: pass it as `before` on the
+        next call to fetch the page of intervals immediately preceding this
+        one (measurements are returned ordered ascending, most recent N
+        ending at `end_on`).
+        """
         variables = {
             "accountNumber": self._auth.account_number,
             "propertyId": property_id,
-            "after": after,
+            "before": before,
             "last": last,
             "endOn": end_on.isoformat(),
             "readingFrequencyType": "HOUR_INTERVAL",
@@ -174,7 +180,7 @@ class MeridianApi:
             if (iv := self._map_node(edge["node"], direction)) is not None
         ]
         page = conn.get("pageInfo") or {}
-        next_cursor = page.get("endCursor") if page.get("hasNextPage") else None
+        next_cursor = page.get("startCursor") if page.get("hasPreviousPage") else None
         return intervals, next_cursor
 
     async def async_get_recent(
@@ -183,16 +189,16 @@ class MeridianApi:
         """Paginate measurements covering roughly the last `hours` hours."""
         end_on = datetime.now(_TZ).date()
         collected: list[Interval] = []
-        after: str | None = None
+        before: str | None = None
         remaining = hours
         while remaining > 0:
             page_size = min(remaining, 168)
-            intervals, after = await self.async_get_measurements(
-                property_id, direction, end_on, page_size, after
+            intervals, before = await self.async_get_measurements(
+                property_id, direction, end_on, page_size, before
             )
             collected.extend(intervals)
             remaining -= page_size
-            if after is None:
+            if before is None:
                 break
         return collected
 
