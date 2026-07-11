@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from meridian_energy import const
-from meridian_energy.statistics import Interval, NightWindow, is_night, bucket_of
+from meridian_energy.statistics import Interval, NightWindow, is_night, bucket_of, fetch_window_hours
 
 W = NightWindow(const.DEFAULT_NIGHT_START, const.DEFAULT_NIGHT_END)  # 21..7
 
@@ -132,3 +132,34 @@ def test_build_negative_energy_skip_also_skips_cost():
     out = build_statistics(ivs, W, None, {})
     assert len(out[const.STAT_DAY]) == 1
     assert len(out[const.STAT_DAY_COST]) == 1  # skipped-energy hour contributes no cost point
+
+
+def test_fetch_window_no_baselines_returns_max():
+    now = datetime(2026, 7, 11, tzinfo=timezone.utc)
+    assert fetch_window_hours({}, now, 168, 8760) == 8760
+
+
+def test_fetch_window_covers_gap_from_oldest_baseline():
+    baselines = {
+        const.STAT_DAY: Baseline(100.0, datetime(2026, 6, 20, 8, tzinfo=timezone.utc)),
+        const.STAT_NIGHT: Baseline(50.0, datetime(2026, 6, 20, 11, tzinfo=timezone.utc)),
+    }
+    now = datetime(2026, 7, 11, tzinfo=timezone.utc)
+    # hours from 2026-06-20T08:00Z to 2026-07-11T00:00Z is 20 days 16h = 496h, +2 overlap = 498
+    expected = int((now - datetime(2026, 6, 20, 8, tzinfo=timezone.utc)).total_seconds() // 3600) + 2
+    assert expected == 498
+    result = fetch_window_hours(baselines, now, 168, 8760)
+    assert result == expected
+    assert 168 <= result <= 8760
+
+
+def test_fetch_window_clamps_to_min_when_recent():
+    now = datetime(2026, 7, 11, tzinfo=timezone.utc)
+    baselines = {const.STAT_DAY: Baseline(100.0, now - timedelta(hours=1))}
+    assert fetch_window_hours(baselines, now, 168, 8760) == 168
+
+
+def test_fetch_window_clamps_to_max_when_ancient():
+    now = datetime(2026, 7, 11, tzinfo=timezone.utc)
+    baselines = {const.STAT_DAY: Baseline(100.0, now - timedelta(days=365 * 5))}
+    assert fetch_window_hours(baselines, now, 168, 8760) == 8760

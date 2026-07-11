@@ -19,11 +19,12 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from . import const
 from .api import Account, MeridianApi, MeridianApiError
 from .auth import MeridianAuthError, MeridianConnectionError
-from .statistics import Baseline, NightWindow, Rates, build_statistics
+from .statistics import Baseline, NightWindow, Rates, build_statistics, fetch_window_hours
 
 _LOGGER = logging.getLogger(__name__)
 _UPDATE_INTERVAL = timedelta(hours=3)
-_FETCH_HOURS = 168  # one week per run; append-only dedupe handles overlap
+_MIN_FETCH_HOURS = 168  # one week floor per run; append-only dedupe handles overlap
+_MAX_FETCH_HOURS = 24 * 365  # cap backfill span for fresh installs / long gaps
 
 _STAT_NAMES = {
     const.STAT_DAY: "Meridian Energy (Day)",
@@ -71,16 +72,20 @@ class MeridianCoordinator(DataUpdateCoordinator[CoordinatorData]):
         )
 
     async def _async_update_data(self) -> CoordinatorData:
+        baselines = await self._async_read_baselines()
         try:
             if self._account is None:
                 self._account = await self._api.async_get_account()
             account = self._account
+            hours = fetch_window_hours(
+                baselines, datetime.now(timezone.utc), _MIN_FETCH_HOURS, _MAX_FETCH_HOURS
+            )
             cons = await self._api.async_get_recent(
-                account.property_id, "CONSUMPTION", _FETCH_HOURS
+                account.property_id, "CONSUMPTION", hours
             )
             gen = (
                 await self._api.async_get_recent(
-                    account.property_id, "GENERATION", _FETCH_HOURS
+                    account.property_id, "GENERATION", hours
                 )
                 if account.has_solar
                 else []
@@ -90,7 +95,6 @@ class MeridianCoordinator(DataUpdateCoordinator[CoordinatorData]):
         except (MeridianConnectionError, MeridianApiError) as err:
             raise UpdateFailed(str(err)) from err
 
-        baselines = await self._async_read_baselines()
         series = build_statistics(cons + gen, self._night_window(), self._rates(), baselines)
 
         totals: dict[str, float] = {}

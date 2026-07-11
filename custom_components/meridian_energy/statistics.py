@@ -52,6 +52,26 @@ class Baseline:
     last_start_utc: datetime | None
 
 
+def fetch_window_hours(
+    baselines: dict[str, Baseline],
+    now: datetime,
+    min_hours: int,
+    max_hours: int,
+) -> int:
+    """Hours of history to fetch.
+
+    Enough to reach from the oldest existing baseline up to now (plus a
+    small overlap), clamped to [min_hours, max_hours]. With no baselines
+    (fresh install) return max_hours to backfill history.
+    """
+    starts = [b.last_start_utc for b in baselines.values() if b.last_start_utc is not None]
+    if not starts:
+        return max_hours
+    oldest = min(starts)
+    hours = int((now - oldest).total_seconds() // 3600) + 2  # +2h overlap for late/edge hours
+    return max(min_hours, min(hours, max_hours))
+
+
 def is_night(local_hour: int, window: NightWindow) -> bool:
     """Return True if local_hour falls in the night window (may wrap midnight)."""
     if window.start_hour > window.end_hour:  # wraps midnight, e.g. 21..7
