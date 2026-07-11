@@ -3,14 +3,70 @@
 Usage:
     python3 scripts/dev_validate.py your-email@example.com
 
+Requires: aiohttp (pip install aiohttp); Home Assistant is NOT required.
+
 Prompts for the OTP code Meridian emails you. Writes nothing to Home Assistant.
 """
 
 import asyncio
+import importlib.abc
+import importlib.machinery
 import sys
+import types
 from pathlib import Path
+from unittest.mock import MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "custom_components"))
+
+
+# --- Robust homeassistant auto-mock using MetaPathFinder ---
+# Intercept any import of `homeassistant` or `homeassistant.*` and synthesize
+# mock modules on-demand. This allows the script to run without Home Assistant
+# installed, since it only uses HA-free modules (auth, api, statistics, const).
+
+
+class _MockModule(types.ModuleType):
+    """A module that fabricates missing attributes as MagicMock() on-demand."""
+
+    def __getattr__(self, name):
+        # Fabricate and cache the attribute so repeated access returns the same mock.
+        mock = MagicMock()
+        setattr(self, name, mock)
+        return mock
+
+
+class _HomeAssistantMetaPathFinder(importlib.abc.MetaPathFinder):
+    """Find and load homeassistant.* imports by synthesizing mock modules."""
+
+    def find_spec(self, fullname, path, target=None):
+        # Only intercept homeassistant and homeassistant.* imports.
+        if fullname == "homeassistant" or fullname.startswith("homeassistant."):
+            # Synthesize a loader that will create a _MockModule.
+            return importlib.machinery.ModuleSpec(
+                fullname,
+                _HomeAssistantLoader(),
+            )
+        return None
+
+
+class _HomeAssistantLoader(importlib.abc.Loader):
+    """Loader that creates _MockModule instances for homeassistant.* imports."""
+
+    def create_module(self, spec):
+        # Return a new _MockModule with __path__ = [] so submodule imports
+        # keep resolving through this finder.
+        mod = _MockModule(spec.name)
+        mod.__path__ = []  # Allows further submodule imports to resolve via finder
+        return mod
+
+    def exec_module(self, module):
+        # No additional setup needed; __getattr__ handles everything.
+        pass
+
+
+# Install the finder before any meridian_energy imports.
+if not any(isinstance(finder, _HomeAssistantMetaPathFinder) for finder in sys.meta_path):
+    sys.meta_path.insert(0, _HomeAssistantMetaPathFinder())
 
 import aiohttp  # noqa: E402
 
